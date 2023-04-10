@@ -32,6 +32,7 @@
 #include "fu-polkit-agent.h"
 #include "fu-util-bios-setting.h"
 #include "fu-util-common.h"
+#include "fu-util-repair.h"
 
 #ifdef HAVE_SYSTEMD
 #include "fu-systemd.h"
@@ -4164,6 +4165,53 @@ fu_util_get_bios_setting(FuUtilPrivate *priv, gchar **values, GError **error)
 }
 
 static gboolean
+fu_util_auto_repair(FuUtilPrivate *priv, gchar **values, GError **error)
+{
+	gchar *repair_name = NULL;
+	gboolean is_do = TRUE;
+	g_autoptr(GList) fu_repair_list = NULL;
+
+	for (guint i = 0; values[i] != NULL; i++) {
+		printf("%s\n", values[i]);
+		fu_console_print(priv->console,
+				 "%s",
+				 values[i]);
+
+		if (i == 0)
+			repair_name = values[i];
+		else if (i == 1) {
+			if (!g_strcmp0 (values[i], "undo"))
+				is_do = FALSE;
+		}
+		if (i == 1)
+			break;
+	}
+
+	if (repair_name) {
+		fu_repair_list = fu_util_repair_init();
+		return fu_util_repair_do_undo (fu_repair_list, repair_name, is_do, error);;
+	}
+
+	g_set_error_literal(error,
+			    FWUPD_ERROR,
+			    FWUPD_ERROR_INVALID_ARGS,
+			    /* TRANSLATORS: error message */
+			    _("Unable to find repair item"));
+	return FALSE;
+}
+
+static gboolean
+fu_util_repair_list_items(FuUtilPrivate *priv, gchar **values, GError **error)
+{
+	g_autoptr(GList) fu_repair_list = NULL; 
+
+	fu_repair_list = fu_util_repair_init();
+	fu_util_repair_list(priv->console, fu_repair_list);
+
+	return TRUE;
+}
+
+static gboolean
 fu_util_emulation_tag(FuUtilPrivate *priv, gchar **values, GError **error)
 {
 	g_autoptr(FwupdDevice) dev = NULL;
@@ -4782,6 +4830,22 @@ main(int argc, char *argv[])
 			      /* TRANSLATORS: command description */
 			      _("Inhibit the system to prevent upgrades"),
 			      fu_util_inhibit);
+
+	fu_util_cmd_array_add(cmd_array,
+			      "repair",
+			      /* TRANSLATORS: command argument: uppercase, spaces->dashes */
+			      _("[STREAM_ID]"),
+			      /* TRANSLATORS: command description */
+			      _("Automatically repair the system configuration to improve host security"),
+			      fu_util_auto_repair);
+
+	fu_util_cmd_array_add(cmd_array,
+			      "repair-list",
+			      NULL,
+			      /* TRANSLATORS: command description */
+			      _("List auto-repairing items"),
+			      fu_util_repair_list_items);
+
 	fu_util_cmd_array_add(cmd_array,
 			      "uninhibit",
 			      /* TRANSLATORS: command argument: uppercase, spaces->dashes */

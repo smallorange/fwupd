@@ -110,6 +110,7 @@ fwupdmgr = executable(
   'fwupdmgr',
   sources: [
     'fu-util.c',
+    'fu-util-repair.c',
     client_src,
   ],
   include_directories: [
