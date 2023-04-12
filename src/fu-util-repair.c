@@ -21,57 +21,84 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "fwupd-common-private.h"
-#include "fwupd-device-private.h"
-#include "fwupd-plugin-private.h"
-#include "fwupd-release-private.h"
-#include "fwupd-remote-private.h"
-
 #include "fu-console.h"
 #include "fu-plugin-private.h"
-#include "fu-polkit-agent.h"
-#include "fu-util-bios-setting.h"
 #include "fu-util-common.h"
-
-#ifdef HAVE_SYSTEMD
-#include "fu-systemd.h"
-#endif
-
 #include "fu-util-repair.h"
 
 
-
-static gboolean fu_util_repair_kernel_lockdown_cb (void)
+static gboolean 
+grubby_set_lockdown (gboolean enable, GError **error)
 {
-	g_printf("Fix kernel locK\n");
+	g_autofree gchar *output = NULL;
+	const gchar *argv_grubby[] = {"",
+				      "--update-kernel=DEFAULT",
+				      "--args=lockdown=confidentiality",
+				      NULL};
+	g_autofree gchar *grubby = NULL;
+	grubby = fu_path_find_program("grubby", NULL);
+	argv_grubby[0] = grubby;
+
+	if (enable)
+		argv_grubby[2] = "--args=lockdown=confidentiality";
+	else
+		argv_grubby[2] = "--remove-args=lockdown=confidentiality";
+
+	if (!g_spawn_sync(NULL,
+			  (gchar **)argv_grubby,
+			  NULL,
+			  G_SPAWN_DEFAULT,
+			  NULL,
+			  NULL,
+			  &output,
+			  NULL,
+			  NULL,
+			  error))
+		return FALSE;
 
 	return TRUE;
 }
 
-static gboolean fu_util_repair_secure_boot_cb (void)
+static gboolean
+set_secure_boot (gboolean enable, GError **error)
+{
+
+	return TRUE;
+}
+
+static gboolean
+fu_util_repair_kernel_lockdown_cb (GError **error)
+{
+	/* set lockdown to kernel parameter */
+	/* grubby --update-kernel=DEFAULT --args="lockdown=confidentiality" */
+	g_printf("Fix lockdown\n");
+	return grubby_set_lockdown (TRUE, NULL);
+}
+
+static gboolean
+fu_util_repair_secure_boot_cb (GError **error)
 {
 	g_printf("Fix secure boot\n");
-
+	set_secure_boot (TRUE, error);
 	return TRUE;
 }
 
-
-static gboolean fu_util_repair_undo_kernel_lockdown_cb (void)
+static gboolean
+fu_util_repair_undo_kernel_lockdown_cb (GError **error)
 {
-	g_printf("undo kernel lockdown\n");
-
-	return TRUE;
+	return grubby_set_lockdown (FALSE, NULL);
 }
 
-static gboolean fu_util_undo_repair_secure_boot_cb (void)
+static gboolean
+fu_util_undo_repair_secure_boot_cb (GError **error)
 {
 	g_printf("undo secure boot\n");
-
+	set_secure_boot (FALSE, error);
 	return TRUE;
 }
 
-
-GList *fu_util_repair_init(void)
+GList *
+fu_util_repair_init(void)
 {
 	g_autoptr(GList) fu_repair_list = NULL;
 	struct FuUtilRepairPrivate *repair;
@@ -100,7 +127,8 @@ GList *fu_util_repair_init(void)
 	return g_steal_pointer (&fu_repair_list);
 }
 
-void fu_util_repair_list(FuConsole *console, GList *fu_repair_list)
+void
+fu_util_repair_list(FuConsole *console, GList *fu_repair_list)
 {
 	guint i;
 	gpointer *tmp;
@@ -119,7 +147,8 @@ void fu_util_repair_list(FuConsole *console, GList *fu_repair_list)
 	fu_console_print_full(console, FU_CONSOLE_PRINT_FLAG_NONE, "%s\n", repair_msg->str);
 }
 
-static guint fu_util_repair_name_to_id (GList *fu_repair_list, gchar *name)
+static guint
+fu_util_repair_name_to_id (GList *fu_repair_list, gchar *name)
 {
 	struct FuUtilRepairPrivate *repair;
 
@@ -135,7 +164,8 @@ static guint fu_util_repair_name_to_id (GList *fu_repair_list, gchar *name)
 	return FU_UTIL_REPAIR_LAST;
 }
 
-gboolean fu_util_repair_do_undo (GList *fu_repair_list, gchar *repair_name, gboolean is_do, GError **error)
+gboolean
+fu_util_repair_do_undo (GList *fu_repair_list, gchar *repair_name, gboolean is_do, GError **error)
 {
 	guint repair_id;
 	struct FuUtilRepairPrivate *repair;
@@ -145,9 +175,9 @@ gboolean fu_util_repair_do_undo (GList *fu_repair_list, gchar *repair_name, gboo
 	
 	if (repair) {
 		if (is_do)
-			repair->do_callback ();
+			repair->do_callback (error);
 		else if (!is_do)
-			repair->undo_callback ();
+			repair->undo_callback (error);
 	} else {
 		g_set_error_literal (error,
 				     FWUPD_ERROR_NOT_SUPPORTED,

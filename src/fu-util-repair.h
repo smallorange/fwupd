@@ -15,7 +15,7 @@
 
 #include "fu-console.h"
 
-typedef gboolean (*FuUtilRepairCmdFunc)(void);
+typedef gboolean (*FuUtilRepairCmdFunc)(GError **error);
 struct FuUtilRepairPrivate{
 	guint repair_id;
 	GString *name;
@@ -29,6 +29,9 @@ typedef enum {
 	FU_UTIL_REPAIR_LAST
 } FuRepairId;
 
-GList *fu_util_repair_init(void);
-void fu_util_repair_list(FuConsole *console, GList *fu_repair_list);
-gboolean fu_util_repair_do_undo (GList *fu_repair_list, gchar *repair_name, gboolean is_do, GError **error);
+GList *
+fu_util_repair_init(void);
+void
+fu_util_repair_list(FuConsole *console, GList *fu_repair_list);
+gboolean
+fu_util_repair_do_undo (GList *fu_repair_list, gchar *repair_name, gboolean is_do, GError **error);
