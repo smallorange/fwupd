@@ -26,6 +26,7 @@ struct FuUtilRepairPrivate{
 typedef enum {
 	FU_UTIL_REPAIR_KERNEL_LOCKDOWN,
 	FU_UTIL_REPAIR_SECURE_BOOT,
+	FU_UTIL_REPAIR_IOMMU,
 	FU_UTIL_REPAIR_LAST
 } FuRepairId;
 

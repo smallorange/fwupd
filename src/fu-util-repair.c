@@ -27,22 +27,25 @@
 #include "fu-util-repair.h"
 
 
-static gboolean 
-grubby_set_lockdown (gboolean enable, GError **error)
+static gboolean
+grubby_set(gboolean enable, const gchar *grubby_arg,  GError **error)
 {
 	g_autofree gchar *output = NULL;
+	g_autofree gchar *arg_string = NULL;
 	const gchar *argv_grubby[] = {"",
 				      "--update-kernel=DEFAULT",
-				      "--args=lockdown=confidentiality",
+				      "",
 				      NULL};
 	g_autofree gchar *grubby = NULL;
 	grubby = fu_path_find_program("grubby", NULL);
 	argv_grubby[0] = grubby;
 
 	if (enable)
-		argv_grubby[2] = "--args=lockdown=confidentiality";
+		arg_string = g_strdup_printf("--args=%s", grubby_arg);
 	else
-		argv_grubby[2] = "--remove-args=lockdown=confidentiality";
+		arg_string = g_strdup_printf("--remove-args=%s", grubby_arg);
+	
+	argv_grubby[2] = arg_string;
 
 	if (!g_spawn_sync(NULL,
 			  (gchar **)argv_grubby,
@@ -59,10 +62,27 @@ grubby_set_lockdown (gboolean enable, GError **error)
 	return TRUE;
 }
 
+static gboolean 
+grubby_set_lockdown (gboolean enable, GError **error)
+{
+	if (enable)
+		return grubby_set(TRUE, "lockdown=confidentiality", error);
+	else
+		return grubby_set(FALSE, "lockdown=confidentiality", error);
+}
+
+static gboolean
+grubby_set_iomme(gboolean enable, GError **error)
+{
+	if (enable)
+		return grubby_set(TRUE, "iommu=force", error);
+	else
+		return grubby_set(FALSE, "iommu=force", error);
+}
+
 static gboolean
 set_secure_boot (gboolean enable, GError **error)
 {
-
 	return TRUE;
 }
 
@@ -97,6 +117,18 @@ fu_util_undo_repair_secure_boot_cb (GError **error)
 	return TRUE;
 }
 
+static gboolean
+fu_util_repair_iommu_cb (GError **error)
+{
+	return grubby_set_iomme (TRUE, error);
+}
+
+static gboolean
+fu_util_undo_repair_iommu_cb (GError **error)
+{
+	return grubby_set_iomme (FALSE, error);
+}
+
 GList *
 fu_util_repair_init(void)
 {
@@ -117,6 +149,12 @@ fu_util_repair_init(void)
 			repair->name = g_string_new("secure-boot");
 			repair->do_callback = fu_util_repair_secure_boot_cb;
 			repair->undo_callback = fu_util_undo_repair_secure_boot_cb;
+			break;
+		case FU_UTIL_REPAIR_IOMMU:
+			repair->repair_id = FU_UTIL_REPAIR_IOMMU;
+			repair->name = g_string_new("iommu");
+			repair->do_callback = fu_util_repair_iommu_cb;
+			repair->undo_callback = fu_util_undo_repair_iommu_cb;
 			break;
 		default:
 			return fu_repair_list;
