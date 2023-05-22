@@ -37,9 +37,8 @@
 #include "fu-systemd.h"
 #endif
 
-/* custom return codes */
+/* custom return code */
 #define EXIT_NOTHING_TO_DO 2
-#define EXIT_NOT_FOUND	   3
 
 typedef enum {
 	FU_UTIL_OPERATION_UNKNOWN,
@@ -1117,93 +1116,6 @@ fu_util_uninhibit(FuUtilPrivate *priv, gchar **values, GError **error)
 	return fwupd_client_uninhibit(priv->client, values[0], priv->cancellable, error);
 }
 
-typedef struct {
-	FuUtilPrivate *priv;
-	const gchar *value;
-	FwupdDevice *device; /* no-ref */
-} FuUtilWaitHelper;
-
-static void
-fu_util_device_wait_added_cb(FwupdClient *client, FwupdDevice *device, FuUtilWaitHelper *helper)
-{
-	FuUtilPrivate *priv = helper->priv;
-	if (g_strcmp0(fwupd_device_get_id(device), helper->value) == 0 ||
-	    fwupd_device_has_guid(device, helper->value)) {
-		helper->device = device;
-		g_main_loop_quit(priv->loop);
-		return;
-	}
-}
-
-static gboolean
-fu_util_device_wait_timeout_cb(gpointer user_data)
-{
-	FuUtilPrivate *priv = (FuUtilPrivate *)user_data;
-	g_main_loop_quit(priv->loop);
-	return G_SOURCE_REMOVE;
-}
-
-static gboolean
-fu_util_device_wait(FuUtilPrivate *priv, gchar **values, GError **error)
-{
-	g_autoptr(FwupdDevice) device = NULL;
-	g_autoptr(GPtrArray) devices = NULL;
-	g_autoptr(GSource) source = g_timeout_source_new_seconds(30);
-	g_autoptr(GTimer) timer = g_timer_new();
-	FuUtilWaitHelper helper = {.priv = priv, .value = values[0]};
-
-	/* one argument required */
-	if (g_strv_length(values) != 1) {
-		g_set_error_literal(error,
-				    FWUPD_ERROR,
-				    FWUPD_ERROR_INVALID_ARGS,
-				    "Invalid arguments, expected GUID|DEVICE-ID");
-		return FALSE;
-	}
-
-	/* check if the device already exists */
-	device = fwupd_client_get_device_by_id(priv->client, helper.value, NULL, NULL);
-	if (device != NULL) {
-		/* TRANSLATORS: the device is already connected */
-		fu_console_print_literal(priv->console, _("Device already exists"));
-		return TRUE;
-	}
-	devices = fwupd_client_get_devices_by_guid(priv->client, helper.value, NULL, NULL);
-	if (devices != NULL) {
-		/* TRANSLATORS: the device is already connected */
-		fu_console_print_literal(priv->console, _("Device already exists"));
-		return TRUE;
-	}
-
-	/* wait for device to show up */
-	fu_console_set_progress(priv->console, FWUPD_STATUS_IDLE, 0);
-	g_signal_connect(FWUPD_CLIENT(priv->client),
-			 "device-added",
-			 G_CALLBACK(fu_util_device_wait_added_cb),
-			 &helper);
-	g_source_set_callback(source, fu_util_device_wait_timeout_cb, priv, NULL);
-	g_source_attach(source, priv->main_ctx);
-	g_main_loop_run(priv->loop);
-
-	/* timed out */
-	if (helper.device == NULL) {
-		g_set_error(error,
-			    FWUPD_ERROR,
-			    FWUPD_ERROR_INVALID_ARGS,
-			    "Stopped waiting for %s after %.0fms",
-			    helper.value,
-			    g_timer_elapsed(timer, NULL) * 1000.f);
-		return FALSE;
-	}
-
-	/* success */
-	fu_console_print(priv->console,
-			 /* TRANSLATORS: the device showed up in time */
-			 _("Successfully waited %.0fms for device"),
-			 g_timer_elapsed(timer, NULL) * 1000.f);
-	return TRUE;
-}
-
 static gboolean
 fu_util_quit(FuUtilPrivate *priv, gchar **values, GError **error)
 {
@@ -1350,10 +1262,10 @@ fu_util_local_install(FuUtilPrivate *priv, gchar **values, GError **error)
 	if (g_strv_length(values) == 1) {
 		id = FWUPD_DEVICE_ID_ANY;
 	} else if (g_strv_length(values) == 2) {
-		dev = fu_util_get_device_by_id(priv, values[1], error);
+		id = values[1];
+		dev = fu_util_get_device_by_id(priv, id, error);
 		if (dev == NULL)
 			return FALSE;
-		id = fwupd_device_get_id(dev);
 	} else {
 		g_set_error_literal(error,
 				    FWUPD_ERROR,
@@ -1450,7 +1362,6 @@ fu_util_report_history_for_remote(FuUtilPrivate *priv,
 				  GError **error)
 {
 	g_autofree gchar *data = NULL;
-	g_autofree gchar *report_uri = NULL;
 	g_autofree gchar *sig = NULL;
 	g_autofree gchar *uri = NULL;
 	g_autoptr(FwupdRemote) remote = NULL;
@@ -1476,11 +1387,10 @@ fu_util_report_history_for_remote(FuUtilPrivate *priv,
 		return FALSE;
 
 	/* ask for permission */
-	report_uri = fwupd_remote_build_report_uri(remote, error);
-	if (report_uri == NULL)
-		return FALSE;
 	if (!priv->assume_yes && !fwupd_remote_get_automatic_reports(remote)) {
-		fu_console_print_kv(priv->console, _("Target"), report_uri);
+		fu_console_print_kv(priv->console,
+				    _("Target"),
+				    fwupd_remote_get_report_uri(remote));
 		fu_console_print_kv(priv->console, _("Payload"), data);
 		if (sig != NULL)
 			fu_console_print_kv(priv->console, _("Signature"), sig);
@@ -1494,7 +1404,12 @@ fu_util_report_history_for_remote(FuUtilPrivate *priv,
 	}
 
 	/* POST request and parse reply */
-	if (!fu_util_send_report(priv->client, report_uri, data, sig, &uri, error))
+	if (!fu_util_send_report(priv->client,
+				 fwupd_remote_get_report_uri(remote),
+				 data,
+				 sig,
+				 &uri,
+				 error))
 		return FALSE;
 
 	/* server wanted us to see a message */
@@ -3616,7 +3531,7 @@ fu_util_sync_bkc(FuUtilPrivate *priv, gchar **values, GError **error)
 		g_set_error_literal(error,
 				    FWUPD_ERROR,
 				    FWUPD_ERROR_NOT_SUPPORTED,
-				    "No HostBkc set in fwupd.conf");
+				    "No HostBkc set in daemon.conf");
 		return FALSE;
 	}
 	devices = fwupd_client_get_devices(priv->client, NULL, error);
@@ -4249,6 +4164,89 @@ fu_util_get_bios_setting(FuUtilPrivate *priv, gchar **values, GError **error)
 }
 
 static gboolean
+fu_util_auto_repair(FuUtilPrivate *priv, gchar **values, GError **error)
+{
+	gchar *repair_name = NULL;
+	g_autofree gchar *action = NULL;
+	g_autoptr(GList) fu_repair_list = NULL;
+	gint ret = 0;
+
+	for (guint i = 0; values[i] != NULL; i++) {
+		fu_console_print(priv->console,
+				 "%s: %s",
+				 _("Reparing"),
+				 values[i]);
+
+		if (i == 0) {
+			repair_name = values[i];
+		} else if (i == 1) {
+			if (!g_strcmp0 (values[i], "do"))
+				action = g_strdup_printf ("do");
+			else
+				action = g_strdup_printf ("undo");
+			break;
+		}
+	}
+
+	if (!action)
+		action = g_strdup_printf ("do");
+
+	ret = fwupd_client_repair(priv->client,
+				 repair_name,
+				 action,
+				 priv->cancellable,
+				 error);
+	if (!ret)
+		return FALSE;
+
+	fu_console_print_full(priv->console, FU_CONSOLE_PRINT_FLAG_NONE, "%s\n", _("Repair Success"));
+
+	return TRUE;
+}
+
+static void
+title_print_padding(const gchar *title, GString *dst_string, gsize maxlen)
+{
+	gsize title_len;
+	gsize maxpad = maxlen;
+
+	if (maxlen == 0)
+	maxpad = 50;
+
+	if (title == NULL || dst_string == NULL)
+		return;
+	g_string_append_printf (dst_string, "%s", title);
+
+	title_len = g_utf8_strlen (title, -1) + 1;
+	for (gsize i = title_len; i < maxpad; i++)
+		g_string_append (dst_string, " ");
+}
+
+
+static void
+fu_util_repair_list(FuConsole *console)
+{
+	g_autoptr(GString) repair_msg;
+
+	repair_msg = g_string_new(NULL);
+	title_print_padding (FWUPD_SECURITY_ATTR_ID_IOMMU, repair_msg, 40);
+	/* TRANSLATORS: This means rapair the specific system function. */
+	g_string_append_printf (repair_msg, "%s\n", _("Enable IOMMU"));
+	title_print_padding (FWUPD_SECURITY_ATTR_ID_KERNEL_LOCKDOWN, repair_msg, 40);
+	/* TRANSLATORS: This means rapair the specific system function. */
+	g_string_append_printf (repair_msg, "%s\n", _("Lockdown the Linux kernel"));
+	fu_console_print_full(console, FU_CONSOLE_PRINT_FLAG_NONE, "%s\n", repair_msg->str);
+}
+
+static gboolean
+fu_util_repair_list_items(FuUtilPrivate *priv, gchar **values, GError **error)
+{
+	fu_util_repair_list(priv->console);
+
+	return TRUE;
+}
+
+static gboolean
 fu_util_emulation_tag(FuUtilPrivate *priv, gchar **values, GError **error)
 {
 	g_autoptr(FwupdDevice) dev = NULL;
@@ -4653,7 +4651,7 @@ main(int argc, char *argv[])
 			      /* TRANSLATORS: command argument: uppercase, spaces->dashes */
 			      _("FILE [DEVICE-ID|GUID]"),
 			      /* TRANSLATORS: command description */
-			      _("Install a firmware file in cabinet format on this hardware"),
+			      _("Install a firmware file on this hardware"),
 			      fu_util_local_install);
 	fu_util_cmd_array_add(cmd_array,
 			      "get-details",
@@ -4784,7 +4782,7 @@ main(int argc, char *argv[])
 			      "modify-config",
 			      /* TRANSLATORS: command argument: uppercase, spaces->dashes */
 			      _("KEY,VALUE"),
-			      /* TRANSLATORS: sets something in the daemon configuration file */
+			      /* TRANSLATORS: sets something in daemon.conf */
 			      _("Modifies a daemon configuration value"),
 			      fu_util_modify_config);
 	fu_util_cmd_array_add(cmd_array,
@@ -4867,6 +4865,22 @@ main(int argc, char *argv[])
 			      /* TRANSLATORS: command description */
 			      _("Inhibit the system to prevent upgrades"),
 			      fu_util_inhibit);
+
+	fu_util_cmd_array_add(cmd_array,
+			      "repair",
+			      /* TRANSLATORS: command argument: uppercase, spaces->dashes */
+			      _("[STREAM_ID]"),
+			      /* TRANSLATORS: command description */
+			      _("Automatically repair the system configuration to improve host security"),
+			      fu_util_auto_repair);
+
+	fu_util_cmd_array_add(cmd_array,
+			      "repair-list",
+			      NULL,
+			      /* TRANSLATORS: command description */
+			      _("List auto-repairing items"),
+			      fu_util_repair_list_items);
+
 	fu_util_cmd_array_add(cmd_array,
 			      "uninhibit",
 			      /* TRANSLATORS: command argument: uppercase, spaces->dashes */
@@ -4874,13 +4888,6 @@ main(int argc, char *argv[])
 			      /* TRANSLATORS: command description */
 			      _("Uninhibit the system to allow upgrades"),
 			      fu_util_uninhibit);
-	fu_util_cmd_array_add(cmd_array,
-			      "device-wait",
-			      /* TRANSLATORS: command argument: uppercase, spaces->dashes */
-			      _("GUID|DEVICE-ID"),
-			      /* TRANSLATORS: command description */
-			      _("Wait for a device to appear"),
-			      fu_util_device_wait);
 	fu_util_cmd_array_add(cmd_array,
 			      "quit",
 			      NULL,
@@ -5181,8 +5188,6 @@ main(int argc, char *argv[])
 			fu_console_print_literal(priv->console, str->str);
 		} else if (g_error_matches(error, FWUPD_ERROR, FWUPD_ERROR_NOTHING_TO_DO))
 			return EXIT_NOTHING_TO_DO;
-		else if (g_error_matches(error, FWUPD_ERROR, FWUPD_ERROR_NOT_FOUND))
-			return EXIT_NOT_FOUND;
 		return EXIT_FAILURE;
 	}
 
