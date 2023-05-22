@@ -931,6 +931,9 @@ LIBFWUPD_1.8.13 {
     fwupd_remote_set_enabled;
     fwupd_remote_set_metadata_uri;
     fwupd_remote_set_title;
+    fwupd_client_repair;
+    fwupd_client_repair_async;
+    fwupd_client_repair_finish;
   local: *;
 } LIBFWUPD_1.8.11;
 
