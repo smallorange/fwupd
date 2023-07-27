@@ -556,6 +556,33 @@ fu_bios_settings_get_all(FuBiosSettings *self)
 }
 
 /**
+ * fu_bios_settings_get_pending_values:
+ * @self: a #FuBiosSettings
+ *
+ * Gets all the attributes in the object.
+ *
+ * Returns: (transfer container) (element-type FwupdBiosSetting): attributes
+ *
+ * Since: 1.8.4
+ **/
+GPtrArray *
+fu_bios_settings_get_pending_values(FuBiosSettings *self)
+{
+	g_return_val_if_fail(FU_IS_BIOS_SETTINGS(self), NULL);
+	GPtrArray *result = NULL;
+
+	result = g_ptr_array_new();
+
+	for (guint i = 0; i < self->attrs->len; i++) {
+		FwupdBiosSetting *attr = g_ptr_array_index(self->attrs, i);
+		if (fwupd_bios_setting_get_pending_value(attr))
+			g_ptr_array_add(result, g_object_ref(attr));
+	}
+
+	return g_ptr_array_ref(self->attrs);
+}
+
+/**
  * fu_bios_settings_get_pending_reboot:
  * @self: a #FuBiosSettings
  * @result: (out): Whether a reboot is pending
