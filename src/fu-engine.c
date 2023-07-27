@@ -1135,6 +1135,79 @@ fu_engine_modify_bios_settings(FuEngine *self,
 	return TRUE;
 }
 
+gboolean
+fu_engine_update_bios_pending_settings(FuEngine *self,
+				       GHashTable *settings,
+				       gboolean force_ro,
+				       GError **error)
+{
+	g_autoptr(FuBiosSettings) bios_settings = fu_context_get_bios_settings(self->ctx);
+	gboolean changed = FALSE;
+	GHashTableIter iter;
+	gpointer key, value;
+
+	g_return_val_if_fail(FU_IS_ENGINE(self), FALSE);
+	g_return_val_if_fail(settings != NULL, FALSE);
+	g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+
+	g_hash_table_iter_init(&iter, settings);
+	while (g_hash_table_iter_next(&iter, &key, &value)) {
+		FwupdBiosSetting *attr = fu_context_get_bios_setting(self->ctx, key);
+		if (attr == NULL)
+			continue;
+		if (!g_strcmp0(fwupd_bios_setting_get_current_value(attr), value))
+			;
+		continue;
+		fwupd_bios_setting_set_pending_value(attr, g_strdup(value));
+		changed = TRUE;
+	}
+
+	if (!changed) {
+		g_set_error_literal(error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_NOTHING_TO_DO,
+				    "no BIOS settings needed to be changed");
+		return FALSE;
+	}
+
+	g_object_notify(G_OBJECT(self->ctx), "bios-set");
+	return TRUE;
+}
+
+static void
+fu_engine_bios_set_notify_cb(FuContext *ctx, GParamSpec *pspec, FuEngine *self)
+{
+	g_autoptr(FuBiosSettings) bios_settings = fu_context_get_bios_settings(self->ctx);
+	g_autoptr(GPtrArray) pending_bios_settings =
+	    fu_bios_settings_get_pending_values(bios_settings);
+	g_autoptr(GHashTable) bios_settings_hash =
+	    g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+	GError *local_error = NULL;
+
+	if (pending_bios_settings->len == 0)
+		return;
+
+	for (guint i = 0; i < pending_bios_settings->len; i++) {
+		FwupdBiosSetting *attr = g_ptr_array_index(pending_bios_settings, i);
+		g_autofree gchar *str = NULL;
+		g_autofree gchar *value = NULL;
+		g_autofree gchar *name = NULL;
+		g_autofree gchar *id = NULL;
+		g_autofree gchar *pending_value = NULL;
+
+		id = fwupd_bios_setting_get_id(attr);
+		name = fwupd_bios_setting_get_name(attr);
+		value = fwupd_bios_setting_get_current_value(attr);
+		pending_value = fwupd_bios_setting_get_pending_value(attr);
+		str = g_strdup_printf("%s (%s) = %s pending %s", id, name, value, pending_value);
+		g_info("BIOS SET %s", str);
+		g_hash_table_insert(bios_settings_hash, g_strdup(id), g_strdup(pending_value));
+	}
+	fu_engine_modify_bios_settings(self, bios_settings_hash, FALSE, &local_error);
+
+	g_info("BIOS setting is triggered.\n");
+}
+
 static void
 fu_engine_check_context_flag_save_events(FuEngine *self)
 {
@@ -7580,7 +7653,7 @@ fu_engine_apply_default_bios_settings_policy(FuEngine *self, GError **error)
 	g_autoptr(FuBiosSettings) new_bios_settings = fu_bios_settings_new();
 	g_autoptr(GHashTable) hashtable = NULL;
 	g_autoptr(GDir) dir = NULL;
-
+	g_printf("LOADing default bios\n");
 	if (!g_file_test(dirname, G_FILE_TEST_EXISTS))
 		return TRUE;
 
@@ -7597,6 +7670,7 @@ fu_engine_apply_default_bios_settings_policy(FuEngine *self, GError **error)
 			return FALSE;
 	}
 	hashtable = fu_bios_settings_to_hash_kv(new_bios_settings);
+	g_printf("set default bios\n");
 	return fu_engine_modify_bios_settings(self, hashtable, TRUE, error);
 }
 
@@ -8843,6 +8917,11 @@ fu_engine_init(FuEngine *self)
 	g_signal_connect(FU_IDLE(self->idle),
 			 "notify::status",
 			 G_CALLBACK(fu_engine_idle_status_notify_cb),
+			 self);
+
+	g_signal_connect(FU_CONTEXT(self->ctx),
+			 "notify::bios-set",
+			 G_CALLBACK(fu_engine_bios_set_notify_cb),
 			 self);
 
 	/* backends */
