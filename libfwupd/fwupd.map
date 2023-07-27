@@ -970,6 +970,8 @@ LIBFWUPD_1.9.4 {
     fwupd_remote_flag_to_string;
     fwupd_remote_get_checksum_metadata;
     fwupd_remote_get_flags;
+    fwupd_bios_setting_get_pending_value;
+    fwupd_bios_setting_set_pending_value;
     fwupd_remote_get_refresh_interval;
     fwupd_remote_has_flag;
     fwupd_remote_needs_refresh;
