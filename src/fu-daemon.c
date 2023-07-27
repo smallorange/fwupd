@@ -465,13 +465,18 @@ fu_daemon_authorize_set_bios_settings_cb(GObject *source, GAsyncResult *res, gpo
 	}
 
 	/* authenticated */
-	if (!fu_engine_modify_bios_settings(helper->self->engine,
-					    helper->bios_settings,
-					    FALSE,
-					    &error)) {
-		g_dbus_method_invocation_return_gerror(helper->invocation, error);
-		return;
-	}
+	// if (!fu_engine_modify_bios_settings(helper->self->engine,
+	//				    helper->bios_settings,
+	//				    FALSE,
+	//				    &error)) {
+	//	g_dbus_method_invocation_return_gerror(helper->invocation, error);
+	//	return;
+	// }
+
+	fu_engine_update_bios_pending_settings(helper->self->engine,
+					       helper->bios_settings,
+					       FALSE,
+					       &error);
 	/* success */
 	g_dbus_method_invocation_return_value(helper->invocation, NULL);
 }
