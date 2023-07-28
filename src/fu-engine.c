@@ -1153,12 +1153,16 @@ fu_engine_update_bios_pending_settings(FuEngine *self,
 	g_hash_table_iter_init(&iter, settings);
 	while (g_hash_table_iter_next(&iter, &key, &value)) {
 		FwupdBiosSetting *attr = fu_context_get_bios_setting(self->ctx, key);
+		gchar *possible_value = NULL;
+
 		if (attr == NULL)
 			continue;
 		if (!g_strcmp0(fwupd_bios_setting_get_current_value(attr), value))
-			;
-		continue;
-		fwupd_bios_setting_set_pending_value(attr, g_strdup(value));
+			continue;
+		possible_value = fwupd_bios_setting_map_possible_value(attr, value, error);
+		if (possible_value == NULL)
+			return FALSE;
+		fwupd_bios_setting_set_pending_value(attr, g_strdup(possible_value));
 		changed = TRUE;
 	}
 
@@ -1189,19 +1193,17 @@ fu_engine_bios_set_notify_cb(FuContext *ctx, GParamSpec *pspec, FuEngine *self)
 
 	for (guint i = 0; i < pending_bios_settings->len; i++) {
 		FwupdBiosSetting *attr = g_ptr_array_index(pending_bios_settings, i);
-		g_autofree gchar *str = NULL;
-		g_autofree gchar *value = NULL;
-		g_autofree gchar *name = NULL;
-		g_autofree gchar *id = NULL;
-		g_autofree gchar *pending_value = NULL;
+		gchar *id = NULL;
+		gchar *pending_value = NULL;
 
 		id = fwupd_bios_setting_get_id(attr);
-		name = fwupd_bios_setting_get_name(attr);
-		value = fwupd_bios_setting_get_current_value(attr);
 		pending_value = fwupd_bios_setting_get_pending_value(attr);
-		str = g_strdup_printf("%s (%s) = %s pending %s", id, name, value, pending_value);
-		g_info("BIOS SET %s", str);
+		if (pending_value == NULL)
+			continue;
+
+		g_info("BIOS settings: %s is updating to %s", id, pending_value);
 		g_hash_table_insert(bios_settings_hash, g_strdup(id), g_strdup(pending_value));
+		fwupd_bios_setting_set_pending_value(attr, NULL);
 	}
 	fu_engine_modify_bios_settings(self, bios_settings_hash, FALSE, &local_error);
 
@@ -7671,7 +7673,7 @@ fu_engine_apply_default_bios_settings_policy(FuEngine *self, GError **error)
 	}
 	hashtable = fu_bios_settings_to_hash_kv(new_bios_settings);
 	g_printf("set default bios\n");
-	return fu_engine_modify_bios_settings(self, hashtable, TRUE, error);
+	return fu_engine_update_bios_pending_settings(self, hashtable, TRUE, error);
 }
 
 static void
