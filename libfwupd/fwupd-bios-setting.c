@@ -626,7 +626,11 @@ fwupd_bios_setting_set_pending_value(FwupdBiosSetting *self, const gchar *value)
 		return;
 
 	g_free(priv->pending_value);
-	priv->pending_value = g_strdup(value);
+
+	if (value == NULL)
+		priv->pending_value = NULL;
+	else
+		priv->pending_value = g_strdup(value);
 }
 
 static gboolean
