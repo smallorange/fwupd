@@ -1141,7 +1141,6 @@ fu_engine_update_bios_pending_settings(FuEngine *self,
 				       gboolean force_ro,
 				       GError **error)
 {
-	g_autoptr(FuBiosSettings) bios_settings = fu_context_get_bios_settings(self->ctx);
 	gboolean changed = FALSE;
 	GHashTableIter iter;
 	gpointer key, value;
@@ -1177,8 +1176,8 @@ fu_engine_bios_set_notify_cb(FuContext *ctx, GParamSpec *pspec, FuEngine *self)
 
 	for (guint i = 0; i < pending_bios_settings->len; i++) {
 		FwupdBiosSetting *attr = g_ptr_array_index(pending_bios_settings, i);
-		gchar *id = NULL;
-		gchar *pending_value = NULL;
+		const gchar *id = NULL;
+		const gchar *pending_value = NULL;
 
 		id = fwupd_bios_setting_get_id(attr);
 		pending_value = fwupd_bios_setting_get_pending_value(attr);
@@ -7639,7 +7638,6 @@ fu_engine_apply_default_bios_settings_policy(FuEngine *self, GError **error)
 	g_autoptr(FuBiosSettings) new_bios_settings = fu_bios_settings_new();
 	g_autoptr(GHashTable) hashtable = NULL;
 	g_autoptr(GDir) dir = NULL;
-	g_printf("LOADing default bios\n");
 	if (!g_file_test(dirname, G_FILE_TEST_EXISTS))
 		return TRUE;
 
@@ -7656,7 +7654,6 @@ fu_engine_apply_default_bios_settings_policy(FuEngine *self, GError **error)
 			return FALSE;
 	}
 	hashtable = fu_bios_settings_to_hash_kv(new_bios_settings);
-	g_printf("set default bios\n");
 	return fu_engine_update_bios_pending_settings(self, hashtable, TRUE, error);
 }
 
