@@ -1152,27 +1152,11 @@ fu_engine_update_bios_pending_settings(FuEngine *self,
 
 	g_hash_table_iter_init(&iter, settings);
 	while (g_hash_table_iter_next(&iter, &key, &value)) {
-		FwupdBiosSetting *attr = fu_context_get_bios_setting(self->ctx, key);
-		gchar *possible_value = NULL;
-
-		if (attr == NULL)
-			continue;
-		if (!g_strcmp0(fwupd_bios_setting_get_current_value(attr), value))
-			continue;
-		possible_value = fwupd_bios_setting_map_possible_value(attr, value, error);
-		if (possible_value == NULL)
-			return FALSE;
-		fwupd_bios_setting_set_pending_value(attr, g_strdup(possible_value));
-		changed = TRUE;
+		changed = fu_context_get_bios_setting_pending_value(self->ctx, key, value, error);
 	}
 
-	if (!changed) {
-		g_set_error_literal(error,
-				    FWUPD_ERROR,
-				    FWUPD_ERROR_NOTHING_TO_DO,
-				    "no BIOS settings needed to be changed");
+	if (!changed)
 		return FALSE;
-	}
 
 	g_object_notify(G_OBJECT(self->ctx), "bios-set");
 	return TRUE;
